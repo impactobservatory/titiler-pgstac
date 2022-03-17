@@ -10,7 +10,7 @@ from cachetools.keys import hashkey
 from cogeo_mosaic.backends import BaseBackend
 from cogeo_mosaic.errors import NoAssetFoundError
 from cogeo_mosaic.mosaic import MosaicJSON
-from geojson_pydantic import Point, Polygon
+from geojson_pydantic import Feature, Point, Polygon
 from morecantile import TileMatrixSet
 from psycopg_pool import ConnectionPool
 from rasterio.crs import CRS
@@ -261,6 +261,42 @@ class PGSTACBackend(BaseBackend):
                 return src_dst.tile(x, y, z, **kwargs)
 
         return mosaic_reader(mosaic_assets, _reader, tile_x, tile_y, tile_z, **kwargs)
+
+    def feature(
+        self,
+        feature: Feature,
+        reverse: bool = False,
+        scan_limit: Optional[int] = None,
+        items_limit: Optional[int] = None,
+        time_limit: Optional[int] = None,
+        exitwhenfull: Optional[bool] = None,
+        skipcovered: Optional[bool] = None,
+        **kwargs: Any,
+    ) -> Tuple[ImageData, List[str]]:
+        """Get Tile from multiple observation."""
+        mosaic_assets = self.get_assets(feature.geometry,
+            scan_limit=scan_limit,
+            items_limit=items_limit,
+            time_limit=time_limit,
+            exitwhenfull=exitwhenfull,
+            skipcovered=skipcovered,
+        )
+ 
+        if not mosaic_assets:
+            raise NoAssetFoundError(
+                f"No assets found for feature"
+            )
+ 
+        if reverse:
+            mosaic_assets = list(reversed(mosaic_assets))
+ 
+        def _reader(
+            item: Dict[str, Any], feature, **kwargs: Any
+        ) -> ImageData:
+            with self.reader(item, **self.reader_options) as src_dst:
+                return src_dst.feature(feature.geometry.__geo_interface__, **kwargs)
+ 
+        return mosaic_reader(mosaic_assets, _reader, feature, **kwargs)
 
     def point(
         self,

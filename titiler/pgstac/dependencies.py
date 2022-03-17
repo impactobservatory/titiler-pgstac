@@ -1,9 +1,13 @@
 """titiler-pgstac dependencies."""
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from enum import Enum
+from typing import Dict, Optional, Sequence, Tuple
 
+import json
+import numpy
 import pystac
+import matplotlib
 from cachetools import TTLCache, cached
 from cachetools.keys import hashkey
 from psycopg.rows import dict_row
@@ -12,6 +16,9 @@ from psycopg_pool import ConnectionPool
 from titiler.core.dependencies import DefaultDependency
 from titiler.pgstac import model
 from titiler.pgstac.settings import CacheSettings
+from rio_tiler.colormap import cmap, parse_color
+from rio_tiler.errors import MissingAssets, MissingBands
+from rio_tiler.types import ColorMapType
 
 from fastapi import HTTPException, Path, Query
 
@@ -19,6 +26,9 @@ from starlette.requests import Request
 
 cache_config = CacheSettings()
 
+ColorMapName = Enum(  # type: ignore
+    "ColorMapName", [(a, a) for a in sorted(cmap.list())]
+)
 
 def PathParams(searchid: str = Path(..., description="Search Id")) -> str:
     """SearcId"""
@@ -99,3 +109,54 @@ def ItemPathParams(
 ) -> Dict:
     """STAC Item dependency."""
     return get_stac_item(request.app.state.dbpool, collection, item)
+
+
+class ColorMapType(str, Enum):
+    """Colormap types."""
+
+    explicit = "explicit"
+    linear = "linear"
+
+
+def ColorMapParams(
+    colormap_name: ColorMapName = Query(None, description="Colormap name"),
+    colormap: str = Query(None, description="JSON encoded custom Colormap"),
+    colormap_type: ColorMapType = Query(ColorMapType.explicit, description="User input colormap type."),
+) -> Optional[Dict]:
+    """Colormap Dependency."""
+    if colormap_name:
+        return cmap.get(colormap_name.value)
+
+    if colormap:
+        try:
+            cm = json.loads(
+                colormap,
+                object_hook=lambda x: {int(k): parse_color(v) for k, v in x.items()},
+            )
+            # Make sure to match colormap type
+            if isinstance(cm, Sequence):
+                cm = [(tuple(inter), parse_color(v)) for (inter, v) in c]
+
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400, detail="Could not parse the colormap value."
+            )
+
+        if colormap_type == ColorMapType.linear:
+            # input colormap has to start from 0 to 255 ?
+            cm = matplotlib.colors.LinearSegmentedColormap.from_list(
+                'custom',
+                [
+                    (k / 255, matplotlib.colors.to_hex([v / 255 for v in rgba], keep_alpha=True))
+                    for (k, rgba) in cm.items()
+                ],
+                256,
+            )
+            x = numpy.linspace(0, 1, 256)
+            cmap_vals = cm(x)[:, :]
+            cmap_uint8 = (cmap_vals * 255).astype('uint8')
+            cm = {idx: value.tolist() for idx, value in enumerate(cmap_uint8)}
+
+        return cm
+
+    return None

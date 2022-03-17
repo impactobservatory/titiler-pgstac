@@ -6,22 +6,23 @@ from typing import Callable, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlencode
 
 import rasterio
+from geojson_pydantic.features import Feature
 from cogeo_mosaic.backends import BaseBackend
 from morecantile import TileMatrixSet
 from psycopg.rows import class_row
 from rio_tiler.constants import MAX_THREADS
 
-from titiler.core.dependencies import AssetsBidxExprParams, DefaultDependency, TMSParams
+from titiler.core.dependencies import AssetsBidxExprParams, DefaultDependency, ImageParams, TMSParams
 from titiler.core.factory import BaseTilerFactory, img_endpoint_params
 from titiler.core.models.mapbox import TileJSON
 from titiler.core.resources.enums import ImageType, OptionalHeader
 from titiler.core.utils import Timer
 from titiler.mosaic.resources.enums import PixelSelectionMethod
 from titiler.pgstac import model
-from titiler.pgstac.dependencies import PathParams, PgSTACParams, SearchParams
+from titiler.pgstac.dependencies import ColorMapParams, PathParams, PgSTACParams, SearchParams
 from titiler.pgstac.mosaic import PGSTACBackend
 
-from fastapi import Depends, Path, Query
+from fastapi import Body, Depends, Path, Query
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -34,6 +35,11 @@ class MosaicTilerFactory(BaseTilerFactory):
     reader: Type[BaseBackend] = PGSTACBackend
     path_dependency: Callable[..., str] = PathParams
     layer_dependency: Type[DefaultDependency] = AssetsBidxExprParams
+
+    # Crop/Preview endpoints Dependencies
+    img_dependency: Type[DefaultDependency] = ImageParams
+
+    colormap_dependency: Callable[..., Optional[Dict]] = ColorMapParams
 
     # TileMatrixSet dependency
     tms_dependency: Callable[..., TileMatrixSet] = TMSParams
@@ -50,6 +56,7 @@ class MosaicTilerFactory(BaseTilerFactory):
         self._search_routes()
         self._tiles_routes()
         self._assets_routes()
+        self._crop_routes()
 
     def _tiles_routes(self) -> None:
         """register tiles routes."""
@@ -382,3 +389,90 @@ class MosaicTilerFactory(BaseTilerFactory):
                     ),
                 ],
             )
+
+    def _crop_routes(self):
+        """Register /crop endpoint."""
+
+        # POST endpoints
+        @self.router.post(
+            r"/crop/{searchid}",
+            **img_endpoint_params,
+        )
+        @self.router.post(
+            r"/crop/{searchid}.{format}",
+            **img_endpoint_params,
+        )
+        @self.router.post(
+            r"/crop/{searchid}/{width}x{height}.{format}",
+            **img_endpoint_params,
+        )
+        def geojson_crop(
+            request: Request,
+            feature: Feature = Body(..., description="GeoJSON Feature."),
+            tms: TileMatrixSet = Depends(self.tms_dependency),
+            format: ImageType = Query(
+                None, description="Output image type. Default is auto."
+            ),
+            searchid=Depends(self.path_dependency),
+            layer_params=Depends(self.layer_dependency),
+            image_params=Depends(self.img_dependency),
+            dataset_params=Depends(self.dataset_dependency),
+            render_params=Depends(self.render_dependency),
+            postprocess_params=Depends(self.process_dependency),
+            colormap=Depends(self.colormap_dependency),
+            pixel_selection: PixelSelectionMethod = Query(
+                PixelSelectionMethod.first, description="Pixel selection method."
+            ),
+            pgstac_params: PgSTACParams = Depends(),
+        ):
+            """Create image from a geojson feature."""
+            timings = []
+            headers: Dict[str, str] = {}
+
+            threads = int(os.getenv("MOSAIC_CONCURRENCY", MAX_THREADS))
+            with Timer() as t:
+                with rasterio.Env(**self.gdal_config):
+                    with self.reader(
+                        searchid,
+                        pool=request.app.state.dbpool,
+                        tms=tms,
+                        **self.backend_options,
+                    ) as src_dst:
+                        mosaic_read = t.from_start
+                        timings.append(("mosaicread", round(mosaic_read * 1000, 2)))
+
+                        data, _ = src_dst.feature(
+                            feature,
+                            **layer_params,
+                            **image_params,
+                            **dataset_params,
+                            **pgstac_params,
+                        )
+                        dst_colormap = getattr(src_dst, "colormap", None)
+            timings.append(("dataread", round(t.elapsed * 1000, 2)))
+
+            with Timer() as t:
+                image = data.post_process(
+                    in_range=postprocess_params.in_range,
+                    color_formula=postprocess_params.color_formula,
+                )
+            timings.append(("postprocess", round(t.elapsed * 1000, 2)))
+
+            if not format:
+                format = ImageType.jpeg if data.mask.all() else ImageType.png
+
+            with Timer() as t:
+                content = image.render(
+                    img_format=format.driver,
+                    colormap=colormap or dst_colormap,
+                    **format.profile,
+                    **render_params,
+                )
+            timings.append(("format", round(t.elapsed * 1000, 2)))
+
+            if OptionalHeader.server_timing in self.optional_headers:
+                headers["Server-Timing"] = ", ".join(
+                    [f"{name};dur={time}" for (name, time) in timings]
+                )
+
+            return Response(content, media_type=format.mediatype, headers=headers)
