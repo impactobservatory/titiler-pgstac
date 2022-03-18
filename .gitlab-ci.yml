@@ -1,0 +1,35 @@
+image: docker:19.03.12
+
+services:
+  - docker:19.03.12-dind
+
+stages:
+  - build
+  - deploy
+
+####################
+### Docker Build ###
+####################
+
+build-titiler-docker:
+  stage: build
+  script:
+    - docker info
+    - docker login impactobservatory.azurecr.io -u $SP_APP_ID -p $SP_PASSWD
+    - docker build -f Dockerfile.gunicorn -t impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID .
+    - docker push impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
+
+##############
+### Deploy ###
+##############
+
+deploy-titiler-pgstac-webapp-dev:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  script:
+    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+    - az webapp config container set --name io-tiler-navigator 
+      --resource-group io-tiler-navigator-resource-group 
+      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+      --docker-registry-server-url https://impactobservatory.azurecr.io 
+      --slot dev
