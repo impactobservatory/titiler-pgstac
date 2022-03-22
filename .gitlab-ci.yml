@@ -33,3 +33,28 @@ deploy-titiler-pgstac-webapp-dev:
       --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
       --docker-registry-server-url https://impactobservatory.azurecr.io 
       --slot dev
+
+deploy-titiler-pgstac-webapp-unbl:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  script:
+    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+    - az webapp config container set --name io-tiler-navigator 
+      --resource-group io-tiler-navigator-resource-group 
+      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+      --docker-registry-server-url https://impactobservatory.azurecr.io 
+      --slot unbl
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+#deploy-titiler-pgstac-webapp-prod:
+#  stage: deploy
+#  image: mcr.microsoft.com/azure-cli:latest
+#  script:
+#    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+#    - az webapp config container set --name io-tiler-navigator 
+#      --resource-group io-tiler-navigator-resource-group 
+#      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+#      --docker-registry-server-url https://impactobservatory.azurecr.io
+#  rules:
+#    - if: $CI_COMMIT_BRANCH == "master"
