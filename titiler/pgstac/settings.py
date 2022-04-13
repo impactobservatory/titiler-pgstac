@@ -57,7 +57,7 @@ class _PostgresSettings(pydantic.BaseSettings):
 
     # see https://www.psycopg.org/psycopg3/docs/api/pool.html#the-connectionpool-class for options
     db_min_conn_size: int = 1  # The minimum number of connection the pool will hold
-    db_max_conn_size: int = 10  # The maximum number of connections the pool will hold
+    db_max_conn_size: int # The maximum number of connections the pool will hold
     db_max_queries: int = (
         50000  # Maximum number of requests that can be queued to the pool
     )
