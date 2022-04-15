@@ -18,7 +18,7 @@ async def connect_to_db(app: FastAPI) -> None:
         max_waiting=settings.db_max_queries,
         max_idle=settings.db_max_idle,
         num_workers=settings.db_num_workers,
-        kwargs={"options": "-c search_path=pgstac,public -c application_name=pgstac"},
+        #kwargs={"options": "-c search_path=pgstac,public -c application_name=pgstac"},
     )
 
 
