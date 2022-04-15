@@ -201,6 +201,7 @@ class PGSTACBackend(BaseBackend):
         with self.pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
+                    "SET search_path = 'pgstac"
                     "SELECT * FROM geojsonsearch(%s, %s, %s, %s, %s, %s, %s, %s);",
                     (
                         geom.json(exclude_none=True),
