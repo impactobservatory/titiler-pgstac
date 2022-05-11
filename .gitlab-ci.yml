@@ -30,7 +30,7 @@ deploy-titiler-pgstac-webapp-test:
     entrypoint: ['']
   script:
     - kubectl config get-contexts
-    - kubectl config use-context gitlab-agent-primary
+    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
     - kubectl get pods
 
 # Allow any branch to deploy to dev automatically
