@@ -64,6 +64,8 @@ deploy-titiler-pgstac-webapp-prod:
     - kubectl apply -f ./titiler.yaml
   needs: ["deploy-titiler-pgstac-webapp-dev"]
   when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
 ################################
 ### UNBL Function App Deploy ###
@@ -94,3 +96,5 @@ deploy-titiler-pgstac-webapp-unbl:
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+
+# Add stage to auto-test the tiler functionality
