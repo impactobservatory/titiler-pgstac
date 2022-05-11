@@ -200,9 +200,10 @@ class PGSTACBackend(BaseBackend):
 
         with self.pool.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    "SET search_path = pgstac, public;",
-                )
+                # Uncomment for use with pg_bouncer
+                #cursor.execute(
+                #    "SET search_path = pgstac, public;",
+                #)
                 cursor.execute(
                     "SELECT * FROM geojsonsearch(%s, %s, %s, %s, %s, %s, %s, %s);",
                     (
