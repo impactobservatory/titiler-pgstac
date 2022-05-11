@@ -1,9 +1,17 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: $NAMESPACE
+
+---  
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: titiler-pgstac
+  namespace: $NAMESPACE
 spec:
-  replicas: 30
+  replicas: $REPLICA_COUNT
   selector:
     matchLabels:
       app: titiler-pgstac
@@ -14,7 +22,7 @@ spec:
     spec:
       containers:
       - name: titiler-pgstac
-        image: impactobservatory.azurecr.io/titiler-pgstac:IOPLAT-5383.517547789
+        image: impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
         imagePullPolicy: IfNotPresent
         resources:
           requests:
@@ -153,7 +161,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: titiler-pgstac  
+  name: titiler-pgstac
+  namespace: $NAMESPACE
 spec:
   type: ClusterIP
   ports:
@@ -185,6 +194,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: titiler-ingress
+  namespace: $NAMESPACE
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: "/$1"
     nginx.ingress.kubernetes.io/secure-backends: "true"
@@ -201,10 +211,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - titiler.impactobservatory.com
+    - $DNS_A_RECORD
     secretName: tls-secret
   rules:
-  - host: titiler.impactobservatory.com
+  - host: $DNS_A_RECORD
     http:
       paths:
       - path: /(.*)
