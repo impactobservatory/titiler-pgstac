@@ -19,44 +19,50 @@ build-titiler-docker:
     - docker build -f Dockerfile.gunicorn -t impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID .
     - docker push impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
 
-##############################
-### IO Function App Deploy ###
-##############################
+#####################
+### IO AKS Deploy ###
+#####################
 
-# Allow any branch to deploy to dev automatically
-# Deployments to non-dev slot are manual
 deploy-titiler-pgstac-webapp-dev:
   stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
+  environment: io-dev
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
   script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot dev
-
-deploy-titiler-pgstac-webapp-staging:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot staging
-  when: manual
+    - kubectl config get-contexts
+    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
+    - kubectl get pods
+    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
+    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
+    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
+    - sed -i "s/\$REPLICA_COUNT/$REPLICA_COUNT/g" titiler.yaml
+    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
+    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
+    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
+    - kubectl apply -f ./titiler.yaml --namespace=$NAMESPACE
 
 deploy-titiler-pgstac-webapp-prod:
   stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
+  environment: io-prod
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
   script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
+    - kubectl config get-contexts
+    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
+    - kubectl get pods
+    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
+    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
+    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
+    - sed -i "s/\$REPLICA_COUNT/$REPLICA_COUNT/g" titiler.yaml
+    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
+    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
+    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
+    - kubectl apply -f ./titiler.yaml
+  needs: ["deploy-titiler-pgstac-webapp-dev"]
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
@@ -90,3 +96,5 @@ deploy-titiler-pgstac-webapp-unbl:
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+
+# Add stage to auto-test the tiler functionality
