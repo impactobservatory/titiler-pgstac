@@ -23,43 +23,53 @@ build-titiler-docker:
 ### IO Function App Deploy ###
 ##############################
 
+deploy-titiler-pgstac-webapp-test:
+  stage: deploy
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - kubectl config get-contexts
+    - kubectl config use-context gitlab-agent-primary
+    - kubectl get pods
+
 # Allow any branch to deploy to dev automatically
 # Deployments to non-dev slot are manual
-deploy-titiler-pgstac-webapp-dev:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot dev
-
-deploy-titiler-pgstac-webapp-staging:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot staging
-  when: manual
-
-deploy-titiler-pgstac-webapp-prod:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-  when: manual
-  rules:
-    - if: $CI_COMMIT_BRANCH == "master"
+#deploy-titiler-pgstac-webapp-dev:
+#  stage: deploy
+#  image: mcr.microsoft.com/azure-cli:latest
+#  script:
+#    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+#    - az webapp config container set --name io-tiler-navigator 
+#      --resource-group io-tiler-navigator-resource-group 
+#      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+#      --docker-registry-server-url https://impactobservatory.azurecr.io 
+#      --slot dev
+#
+#deploy-titiler-pgstac-webapp-staging:
+#  stage: deploy
+#  image: mcr.microsoft.com/azure-cli:latest
+#  script:
+#    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+#    - az webapp config container set --name io-tiler-navigator 
+#      --resource-group io-tiler-navigator-resource-group 
+#      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+#      --docker-registry-server-url https://impactobservatory.azurecr.io 
+#      --slot staging
+#  when: manual
+#
+#deploy-titiler-pgstac-webapp-prod:
+#  stage: deploy
+#  image: mcr.microsoft.com/azure-cli:latest
+#  script:
+#    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
+#    - az webapp config container set --name io-tiler-navigator 
+#      --resource-group io-tiler-navigator-resource-group 
+#      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
+#      --docker-registry-server-url https://impactobservatory.azurecr.io 
+#  when: manual
+#  rules:
+#    - if: $CI_COMMIT_BRANCH == "master"
 
 ################################
 ### UNBL Function App Deploy ###
