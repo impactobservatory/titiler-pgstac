@@ -86,7 +86,7 @@ spec:
         - name: POSTGRES_DBNAME
           value: "navigator"
         - name: POSTGRES_HOST
-          value: "complex-doll-4723.postgres.database.azure.com"
+          value: "$POSTGRES_HOST"
         - name: POSTGRES_PASS
           value: "$POSTGRES_PASS"
         - name: POSTGRES_PORT
@@ -108,7 +108,7 @@ spec:
         - name: DB_MAX_CONN_SIZE
           value: "1000"
       nodeSelector:
-        agentpool: titiler
+        agentpool: $AGENT_POOL
 
 ---
 
