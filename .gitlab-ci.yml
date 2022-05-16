@@ -53,16 +53,16 @@ deploy-titiler-pgstac-io-staging:
   environment: io-staging
   needs: ["deploy-titiler-pgstac-io-dev"]
   when: manual
-  #rules:
-  #  - if: $CI_COMMIT_BRANCH == "master"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
 deploy-titiler-pgstac-io-prod:
   extends: .deploy
   environment: io-prod
   needs: ["deploy-titiler-pgstac-io-staging"]
   when: manual
-  #rules:
-  #  - if: $CI_COMMIT_BRANCH == "master"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
 #######################
 ### UNBL AKS Deploy ###
@@ -72,15 +72,15 @@ deploy-titiler-pgstac-unbl-staging:
   extends: .deploy
   environment: unbl-staging
   when: manual
-  #rules:
-  #  - if: $CI_COMMIT_BRANCH == "master"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
 deploy-titiler-pgstac-unbl-prod:
   extends: .deploy
   environment: unbl-prod
   needs: ["deploy-titiler-pgstac-unbl-staging"]
   when: manual
-  #rules:
-  #  - if: $CI_COMMIT_BRANCH == "master"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
 # Add stage to auto-test the tiler functionality
