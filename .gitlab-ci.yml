@@ -7,6 +7,27 @@ stages:
   - build
   - deploy
 
+.deploy:
+  stage: deploy
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - kubectl config get-contexts
+    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
+    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
+    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
+    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
+    - sed -i "s/\$MIN_REPLICAS/$MIN_REPLICAS/g" titiler.yaml
+    - sed -i "s/\$MAX_REPLICAS/$MAX_REPLICAS/g" titiler.yaml
+    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
+    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
+    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_HOST/$POSTGRES_HOST/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
+    - sed -i "s/\$AGENT_POOL/$AGENT_POOL/g" titiler.yaml
+    - kubectl apply -f ./titiler.yaml --namespace=$NAMESPACE
+
 ####################
 ### Docker Build ###
 ####################
@@ -23,76 +44,41 @@ build-titiler-docker:
 ### IO AKS Deploy ###
 #####################
 
-deploy-titiler-pgstac-webapp-dev:
-  stage: deploy
+deploy-titiler-pgstac-io-dev:
+  extends: .deploy
   environment: io-dev
-  image: 
-    name: bitnami/kubectl:latest
-    entrypoint: ['']
-  script:
-    - kubectl config get-contexts
-    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
-    - kubectl get pods
-    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
-    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
-    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
-    - sed -i "s/\$REPLICA_COUNT/$REPLICA_COUNT/g" titiler.yaml
-    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
-    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
-    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
-    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
-    - kubectl apply -f ./titiler.yaml --namespace=$NAMESPACE
 
-deploy-titiler-pgstac-webapp-prod:
-  stage: deploy
-  environment: io-prod
-  image: 
-    name: bitnami/kubectl:latest
-    entrypoint: ['']
-  script:
-    - kubectl config get-contexts
-    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
-    - kubectl get pods
-    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
-    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
-    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
-    - sed -i "s/\$REPLICA_COUNT/$REPLICA_COUNT/g" titiler.yaml
-    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
-    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
-    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
-    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
-    - kubectl apply -f ./titiler.yaml
-  needs: ["deploy-titiler-pgstac-webapp-dev"]
+deploy-titiler-pgstac-io-staging:
+  extends: .deploy
+  environment: io-staging
+  needs: ["deploy-titiler-pgstac-io-dev"]
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
 
-################################
-### UNBL Function App Deploy ###
-################################
-
-deploy-titiler-pgstac-webapp-unbl-staging:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot unbl-staging
+deploy-titiler-pgstac-io-prod:
+  extends: .deploy
+  environment: io-prod
+  needs: ["deploy-titiler-pgstac-io-staging"]
   when: manual
-  
-deploy-titiler-pgstac-webapp-unbl:
-  stage: deploy
-  image: mcr.microsoft.com/azure-cli:latest
-  script:
-    - az login --service-principal -u $SP_APP_ID -p $SP_PASSWD --tenant $AZURE_TENANT_ID
-    - az webapp config container set --name io-tiler-navigator 
-      --resource-group io-tiler-navigator-resource-group 
-      --docker-custom-image-name impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID 
-      --docker-registry-server-url https://impactobservatory.azurecr.io 
-      --slot unbl
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+#######################
+### UNBL AKS Deploy ###
+#######################
+
+deploy-titiler-pgstac-unbl-staging:
+  extends: .deploy
+  environment: unbl-staging
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+deploy-titiler-pgstac-unbl-prod:
+  extends: .deploy
+  environment: unbl-prod
+  needs: ["deploy-titiler-pgstac-unbl-staging"]
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
