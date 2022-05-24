@@ -33,19 +33,20 @@ spec:
       labels:
         app: titiler-pgstac
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - titiler-pgstac
+            topologyKey: "kubernetes.io/hostname"
       containers:
       - name: titiler-pgstac
         image: impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
         imagePullPolicy: IfNotPresent
-        affinity:
-          podAntiAffinity:
-            requiredDuringSchedulingIgnoredDuringExecution:
-              labelSelector:
-                - matchExpressions:
-                  - key: worker
-                    operator: In
-                    values:
-                    - titiler-pgstac
         resources:
           requests:
             memory: "64Mi"
