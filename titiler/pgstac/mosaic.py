@@ -194,7 +194,9 @@ class PGSTACBackend(BaseBackend):
 
         scan_limit = scan_limit or 10000
         items_limit = items_limit or 100
-        time_limit = time_limit or 5
+        #time_limit = time_limit or 5
+        # Set to 30s to prevent partially rendered tiles IOPLAT-5485
+        time_limit = time_limit or 30
         exitwhenfull = True if exitwhenfull is None else exitwhenfull
         skipcovered = True if skipcovered is None else skipcovered
 
