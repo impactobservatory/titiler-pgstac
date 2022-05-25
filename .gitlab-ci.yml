@@ -53,8 +53,12 @@ deploy-titiler-pgstac-io-staging:
   environment: io-staging
   needs: ["deploy-titiler-pgstac-io-dev"]
   when: manual
-  rules:
-    - if: $CI_COMMIT_BRANCH == "master"
+
+deploy-titiler-pgstac-io-internal:
+  extends: .deploy
+  environment: io-internal
+  needs: ["deploy-titiler-pgstac-io-dev"]
+  when: manual
 
 deploy-titiler-pgstac-io-prod:
   extends: .deploy
