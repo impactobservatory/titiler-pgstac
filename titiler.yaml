@@ -94,7 +94,7 @@ spec:
         - name: PORT
           value: "80"
         - name: POSTGRES_DBNAME
-          value: "navigator"
+          value: "$POSTGRES_DBNAME"
         - name: POSTGRES_HOST
           value: "$POSTGRES_HOST"
         - name: POSTGRES_PASS
