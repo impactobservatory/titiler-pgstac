@@ -16,7 +16,7 @@ spec:
    name: titiler-pgstac
  minReplicas: $MIN_REPLICAS
  maxReplicas: $MAX_REPLICAS
- targetCPUUtilizationPercentage: 70
+ targetCPUUtilizationPercentage: 10
 
 ---
 
