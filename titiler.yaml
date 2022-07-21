@@ -64,6 +64,10 @@ spec:
           httpGet:
             path: /healthz
             port: 80
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
         env:
         - name: AZURE_STORAGE_CONNECTION_STRING
           value: "DefaultEndpointsProtocol=https;AccountName=impactobservatory;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
@@ -116,7 +120,7 @@ spec:
         - name: WORKERS_PER_CORE
           value: "1"
         - name: DB_MAX_CONN_SIZE
-          value: "1000"
+          value: "1000"    
       nodeSelector:
         agentpool: $AGENT_POOL
 
