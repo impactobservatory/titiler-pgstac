@@ -1,31 +1,48 @@
 """Custom MosaicTiler Factory for PgSTAC Mosaic Backend."""
 
 import os
-from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple, Type
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import urlencode
 
 import rasterio
-from geojson_pydantic.features import Feature
 from cogeo_mosaic.backends import BaseBackend
+from cogeo_mosaic.errors import MosaicNotFoundError
+from geojson_pydantic.features import Feature
+from geojson_pydantic import Feature, FeatureCollection
 from morecantile import TileMatrixSet
 from psycopg.rows import class_row
 from rio_tiler.constants import MAX_THREADS
+from rio_tiler.models import BandStatistics
+from rio_tiler.utils import get_array_statistics
 
-from titiler.core.dependencies import AssetsBidxExprParams, DefaultDependency, ImageParams, TMSParams
+from titiler.core.dependencies import AssetsBidxExprParams, DefaultDependency, ImageParams
 from titiler.core.factory import BaseTilerFactory, img_endpoint_params
 from titiler.core.models.mapbox import TileJSON
+from titiler.core.models.responses import MultiBaseStatisticsGeoJSON
 from titiler.core.resources.enums import ImageType, OptionalHeader
+from titiler.core.resources.responses import GeoJSONResponse
 from titiler.core.utils import Timer
 from titiler.mosaic.resources.enums import PixelSelectionMethod
 from titiler.pgstac import model
-from titiler.pgstac.dependencies import ColorMapParams, PathParams, PgSTACParams, SearchParams
+from titiler.pgstac.dependencies import (
+    BackendParams,
+    ColorMapParams,
+    PathParams,
+    PgSTACParams,
+    SearchParams,
+)
 from titiler.pgstac.mosaic import PGSTACBackend
 
 from fastapi import Body, Depends, Path, Query
 
 from starlette.requests import Request
 from starlette.responses import Response
+
+
+def _first_value(values: List[Any], default: Any = None):
+    """Return the first not None value."""
+    return next(filter(lambda x: x is not None, values), default)
 
 
 @dataclass
@@ -41,22 +58,25 @@ class MosaicTilerFactory(BaseTilerFactory):
 
     colormap_dependency: Callable[..., Optional[Dict]] = ColorMapParams
 
-    # TileMatrixSet dependency
-    tms_dependency: Callable[..., TileMatrixSet] = TMSParams
-
     # Search dependency
     search_dependency: Callable[
         ..., Tuple[model.PgSTACSearch, model.Metadata]
     ] = SearchParams
 
-    backend_options: Dict = field(default_factory=dict)
+    backend_dependency: Type[DefaultDependency] = BackendParams
+
+    # Add/Remove some endpoints
+    add_statistics: bool = False
 
     def register_routes(self) -> None:
         """This Method register routes to the router."""
         self._search_routes()
         self._tiles_routes()
+        self._tilejson_routes()
         self._assets_routes()
         self._crop_routes()
+        if self.add_statistics:
+            self._statistics_routes()
 
     def _tiles_routes(self) -> None:
         """register tiles routes."""
@@ -87,7 +107,6 @@ class MosaicTilerFactory(BaseTilerFactory):
             **img_endpoint_params,
         )
         def tile(
-            request: Request,
             searchid=Depends(self.path_dependency),
             z: int = Path(..., ge=0, le=30, description="Tile's zoom level"),
             x: int = Path(..., description="Tile's column"),
@@ -115,6 +134,9 @@ class MosaicTilerFactory(BaseTilerFactory):
                 description="Buffer on each side of the given tile. It must be a multiple of `0.5`. Output **tilesize** will be expanded to `tilesize + 2 * tile_buffer` (e.g 0.5 = 257x257, 1.0 = 258x258).",
             ),
             pgstac_params: PgSTACParams = Depends(),
+            backend_params=Depends(self.backend_dependency),
+            reader_params=Depends(self.reader_dependency),
+            env=Depends(self.environment_dependency),
         ):
             """Create map tile."""
             timings = []
@@ -124,12 +146,12 @@ class MosaicTilerFactory(BaseTilerFactory):
 
             threads = int(os.getenv("MOSAIC_CONCURRENCY", MAX_THREADS))
             with Timer() as t:
-                with rasterio.Env(**self.gdal_config):
+                with rasterio.Env(**env):
                     with self.reader(
                         searchid,
-                        pool=request.app.state.dbpool,
                         tms=tms,
-                        **self.backend_options,
+                        reader_options={**reader_params},
+                        **backend_params,
                     ) as src_dst:
                         mosaic_read = t.from_start
                         timings.append(("mosaicread", round(mosaic_read * 1000, 2)))
@@ -175,6 +197,9 @@ class MosaicTilerFactory(BaseTilerFactory):
 
             return Response(content, media_type=format.mediatype, headers=headers)
 
+    def _tilejson_routes(self) -> None:
+        """register tiles routes."""
+
         @self.router.get(
             "/{searchid}/tilejson.json",
             response_model=TileJSON,
@@ -219,6 +244,8 @@ class MosaicTilerFactory(BaseTilerFactory):
                 description="Buffer on each side of the given tile. It must be a multiple of `0.5`. Output **tilesize** will be expanded to `tilesize + 2 * tile_buffer` (e.g 0.5 = 257x257, 1.0 = 258x258).",
             ),
             pgstac_params: PgSTACParams = Depends(),  # noqa
+            backend_params=Depends(self.backend_dependency),  # noqa
+            reader_params=Depends(self.reader_dependency),  # noqa
         ):
             """Return TileJSON document for a SearchId."""
             with request.app.state.dbpool.connection() as conn:
@@ -229,7 +256,7 @@ class MosaicTilerFactory(BaseTilerFactory):
                     )
                     search_info = cursor.fetchone()
                     if not search_info:
-                        raise KeyError(f"search {searchid} not found")
+                        raise MosaicNotFoundError(f"SearchId `{searchid}` not found")
 
             route_params = {
                 "searchid": search_info.id,
@@ -258,11 +285,17 @@ class MosaicTilerFactory(BaseTilerFactory):
             if qs:
                 tiles_url += f"?{urlencode(qs)}"
 
+            minzoom = _first_value([minzoom, search_info.metadata.minzoom], tms.minzoom)
+            maxzoom = _first_value([maxzoom, search_info.metadata.maxzoom], tms.maxzoom)
+            bounds = _first_value(
+                [search_info.input_search.get("bbox"), search_info.metadata.bounds],
+                tms.bbox,
+            )
             return {
-                "bounds": search_info.input_search.get("bbox", tms.bbox),
-                "minzoom": minzoom if minzoom is not None else tms.minzoom,
-                "maxzoom": maxzoom if maxzoom is not None else tms.maxzoom,
-                "name": search_info.id,
+                "bounds": bounds,
+                "minzoom": minzoom,
+                "maxzoom": maxzoom,
+                "name": search_info.metadata.name or search_info.id,
                 "tiles": [tiles_url],
             }
 
@@ -279,20 +312,21 @@ class MosaicTilerFactory(BaseTilerFactory):
             response_model=List[Dict],
         )
         def assets_for_tile(
-            request: Request,
             searchid=Depends(self.path_dependency),
             z: int = Path(..., ge=0, le=30, description="Tiles's zoom level"),
             x: int = Path(..., description="Tiles's column"),
             y: int = Path(..., description="Tiles's row"),
             tms: TileMatrixSet = Depends(self.tms_dependency),
             pgstac_params: PgSTACParams = Depends(),
+            backend_params=Depends(self.backend_dependency),
+            reader_params=Depends(self.reader_dependency),
         ):
             """Return a list of assets which overlap a given tile"""
             with self.reader(
                 searchid,
-                pool=request.app.state.dbpool,
                 tms=tms,
-                **self.backend_options,
+                reader_options={**reader_params},
+                **backend_params,
             ) as src_dst:
                 return src_dst.assets_for_tile(x, y, z, **pgstac_params)
 
@@ -302,17 +336,18 @@ class MosaicTilerFactory(BaseTilerFactory):
             response_model=List[Dict],
         )
         def assets_for_point(
-            request: Request,
             searchid=Depends(self.path_dependency),
             lon: float = Path(..., description="Longitude"),
             lat: float = Path(..., description="Latitude"),
             pgstac_params: PgSTACParams = Depends(),
+            backend_params=Depends(self.backend_dependency),
+            reader_params=Depends(self.reader_dependency),
         ):
             """Return a list of assets for a given point."""
             with self.reader(
                 searchid,
-                pool=request.app.state.dbpool,
-                **self.backend_options,
+                reader_options={**reader_params},
+                **backend_params,
             ) as src_dst:
                 return src_dst.assets_for_point(lon, lat, **pgstac_params)
 
@@ -373,6 +408,9 @@ class MosaicTilerFactory(BaseTilerFactory):
                         (searchid,),
                     )
                     search_info = cursor.fetchone()
+
+            if not search_info:
+                raise MosaicNotFoundError(f"SearchId `{searchid}` not found")
 
             return model.Info(
                 search=search_info,
@@ -476,3 +514,106 @@ class MosaicTilerFactory(BaseTilerFactory):
                 )
 
             return Response(content, media_type=format.mediatype, headers=headers)
+
+
+    def _statistics_routes(self):
+        """Register /statistics endpoint."""
+
+        @self.router.post(
+            "/{searchid}/statistics",
+            response_model=MultiBaseStatisticsGeoJSON,
+            response_model_exclude_none=True,
+            response_class=GeoJSONResponse,
+            responses={
+                200: {
+                    "content": {"application/json": {}},
+                    "description": "Return statistics for geojson features.",
+                }
+            },
+        )
+        def geojson_statistics(
+            geojson: Union[FeatureCollection, Feature] = Body(
+                ..., description="GeoJSON Feature or FeatureCollection."
+            ),
+            searchid=Depends(self.path_dependency),
+            layer_params=Depends(self.layer_dependency),
+            dataset_params=Depends(self.dataset_dependency),
+            pixel_selection: PixelSelectionMethod = Query(
+                PixelSelectionMethod.first, description="Pixel selection method."
+            ),
+            max_size: int = Query(1024, description="Maximum image size to read onto."),
+            stats_params=Depends(self.stats_dependency),
+            histogram_params=Depends(self.histogram_dependency),
+            pgstac_params: PgSTACParams = Depends(),
+            backend_params=Depends(self.backend_dependency),
+            reader_params=Depends(self.reader_dependency),
+            env=Depends(self.environment_dependency),
+        ):
+            """Get Statistics from a geojson feature or featureCollection."""
+            threads = int(os.getenv("MOSAIC_CONCURRENCY", MAX_THREADS))
+
+            with rasterio.Env(**env):
+                with self.reader(
+                    searchid,
+                    reader_options={**reader_params},
+                    **backend_params,
+                ) as src_dst:
+                    if isinstance(geojson, FeatureCollection):
+                        for feature in geojson:
+                            data, _ = src_dst.feature(
+                                feature.dict(exclude_none=True),
+                                pixel_selection=pixel_selection.method(),
+                                threads=threads,
+                                max_size=max_size,
+                                **layer_params,
+                                **dataset_params,
+                                **pgstac_params,
+                            )
+
+                            stats = get_array_statistics(
+                                data.as_masked(),
+                                **stats_params,
+                                **histogram_params,
+                            )
+
+                        feature.properties = feature.properties or {}
+                        feature.properties.update(
+                            {
+                                "statistics": {
+                                    f"{data.band_names[ix]}": BandStatistics(
+                                        **stats[ix]
+                                    )
+                                    for ix in range(len(stats))
+                                }
+                            }
+                        )
+
+                    else:  # simple feature
+                        data, _ = src_dst.feature(
+                            geojson.dict(exclude_none=True),
+                            pixel_selection=pixel_selection.method(),
+                            threads=threads,
+                            max_size=max_size,
+                            **layer_params,
+                            **dataset_params,
+                            **pgstac_params,
+                        )
+                        stats = get_array_statistics(
+                            data.as_masked(),
+                            **stats_params,
+                            **histogram_params,
+                        )
+
+                        geojson.properties = geojson.properties or {}
+                        geojson.properties.update(
+                            {
+                                "statistics": {
+                                    f"{data.band_names[ix]}": BandStatistics(
+                                        **stats[ix]
+                                    )
+                                    for ix in range(len(stats))
+                                }
+                            }
+                        )
+
+            return geojson

@@ -1,5 +1,36 @@
 # Release Notes
 
+## 0.1.0 (20222-06-27)
+
+* update `titiler.core` and `titiler.mosaic` requirement to `0.7`
+* add `MosaicTilerFactory._tilejson_routes` method to register `TileJSON` routes
+* raise `cogeo_mosaic.errors.MosaicNotFoundError` when SearchId is not found in *pgstac.searches* table
+
+**breaking changes**
+
+* move version definition in `titiler.pgstac.__version__`
+* remove unused `fetch_options` in `titiler.pgstac.reader.PgSTACReader`
+
+## 0.1.0a10 (2022-05-16) Pre-Release
+
+* update `titiler` version and add `reader_dependency` and `backend_dependency` in endpoint factory.
+
+## 0.1.0.a9 (2022-05-05) Pre-Release
+
+* remove LRU cache on all settings classes to enable support for manually providing settings via keyword arguments and to minimize lines of code (author @alukach, https://github.com/stac-utils/titiler-pgstac/pull/54)
+
+## 0.1.0.a8 (2022-05-02) Pre-Release
+
+* Insert mosaic metadata `min/max zoom` and `bounds` in tilejson (https://github.com/stac-utils/titiler-pgstac/pull/51)
+* allow users the ability to optionally provide `PostgresSettings` to `connect_to_db()` function in the event that they want to customize how their DB credentials are populated (author @alukach, https://github.com/stac-utils/titiler-pgstac/pull/53)
+
+## 0.1.0.a7 (2022-04-05) Pre-Release
+
+* add `feature()` method to `PGSTACBackend` mosaic backend
+* add `/statistics` endpoint to return statistics given a GeoJSON feature or featureCollection
+* add `collection` in allowed returned fields
+* switch to `pgstac.search` to get the STAC Item in `titiler.pgstac.dependencies.get_stac_item` (https://github.com/stac-utils/titiler-pgstac/pull/50)
+
 ## 0.1.0.a6 (2022-03-14) Pre-Release
 
 * move dependencies to `titiler.pgstac.dependencies`

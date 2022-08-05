@@ -4,6 +4,9 @@ import logging
 from typing import Dict
 from rio_tiler.io import COGReader
 
+from psycopg import OperationalError
+from psycopg_pool import PoolTimeout
+
 from titiler.core.dependencies import TileMatrixSetName, TMSParams
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import MultiBaseTilerFactory, TMSFactory, TilerFactory
@@ -14,18 +17,19 @@ from titiler.core.middleware import (
 )
 from titiler.core.resources.enums import OptionalHeader
 from titiler.mosaic.errors import MOSAIC_STATUS_CODES
+from titiler.pgstac import __version__ as titiler_pgstac_version
 from titiler.pgstac.db import close_db_connection, connect_to_db
 from titiler.pgstac.dependencies import ItemPathParams, ColorMapParams
 from titiler.pgstac.factory import MosaicTilerFactory
 from titiler.pgstac.reader import PgSTACReader
 from titiler.pgstac.settings import ApiSettings
-from titiler.pgstac.version import __version__ as titiler_pgstac_version
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
+
 
 logging.getLogger("botocore.credentials").disabled = True
 logging.getLogger("botocore.utils").disabled = True
@@ -73,7 +77,9 @@ else:
     optional_headers = []
 
 
-mosaic = MosaicTilerFactory(optional_headers=optional_headers, router_prefix="/mosaic")
+mosaic = MosaicTilerFactory(
+    optional_headers=optional_headers, router_prefix="/mosaic", add_statistics=True
+)
 app.include_router(mosaic.router, tags=["Mosaic"], prefix="/mosaic")
 
 cog = TilerFactory(
@@ -83,6 +89,7 @@ cog = TilerFactory(
     router_prefix="cog",
 )
 app.include_router(cog.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"])
+
 
 stac = MultiBaseTilerFactory(
     reader=PgSTACReader,
@@ -97,9 +104,18 @@ app.include_router(tms.router, tags=["TileMatrixSets"])
 
 
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
-def ping() -> Dict:
+def ping(
+    timeout: int = Query(1, description="Timeout getting SQL connection from the pool.")
+) -> Dict:
     """Health check."""
-    return {"ping": "pong!"}
+    try:
+        with app.state.dbpool.connection(timeout) as conn:
+            conn.execute("SELECT 1")
+            db_online = True
+    except (OperationalError, PoolTimeout):
+        db_online = False
+
+    return {"database_online": db_online}
 
 @cog.router.get("/viewer", response_class=HTMLResponse)
 def cog_demo(request: Request):

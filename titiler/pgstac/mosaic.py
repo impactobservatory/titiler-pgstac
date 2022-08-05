@@ -1,19 +1,24 @@
 """TiTiler.PgSTAC custom Mosaic Backend and Custom STACReader."""
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+import math
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import attr
 import morecantile
 from cachetools import TTLCache, cached
 from cachetools.keys import hashkey
 from cogeo_mosaic.backends import BaseBackend
-from cogeo_mosaic.errors import NoAssetFoundError
+from cogeo_mosaic.errors import MosaicNotFoundError, NoAssetFoundError
 from cogeo_mosaic.mosaic import MosaicJSON
 from geojson_pydantic import Feature, Point, Polygon
+from geojson_pydantic.geometries import Geometry, parse_geometry_obj
 from morecantile import TileMatrixSet
+from psycopg import errors as pgErrors
 from psycopg_pool import ConnectionPool
 from rasterio.crs import CRS
+from rasterio.features import bounds as featureBounds
+from rasterio.warp import transform_geom
 from rio_tiler.constants import WEB_MERCATOR_TMS, WGS84_CRS
 from rio_tiler.errors import InvalidAssetName, PointOutsideBounds
 from rio_tiler.io.base import BaseReader, MultiBaseReader
@@ -35,6 +40,7 @@ class CustomSTACReader(MultiBaseReader):
     Inputs should be in form of:
     {
         "id": "IAMASTACITEM",
+        "collection": "mycollection",
         "bbox": (0, 0, 10, 10),
         "assets": {
             "COG": {
@@ -179,7 +185,7 @@ class PGSTACBackend(BaseBackend):
     )
     def get_assets(
         self,
-        geom: Union[Point, Polygon],
+        geom: Geometry,
         fields: Optional[Dict[str, Any]] = None,
         scan_limit: Optional[int] = None,
         items_limit: Optional[int] = None,
@@ -189,36 +195,38 @@ class PGSTACBackend(BaseBackend):
     ) -> List[Dict]:
         """Find assets."""
         fields = fields or {
-            "include": ["assets", "id", "bbox"],
+            "include": ["assets", "id", "bbox", "collection"],
         }
 
         scan_limit = scan_limit or 10000
         items_limit = items_limit or 100
-        #time_limit = time_limit or 5
-        # Set to 30s to prevent partially rendered tiles IOPLAT-5485
-        time_limit = time_limit or 30
+        time_limit = time_limit or 5
         exitwhenfull = True if exitwhenfull is None else exitwhenfull
         skipcovered = True if skipcovered is None else skipcovered
 
         with self.pool.connection() as conn:
             with conn.cursor() as cursor:
-                # Uncomment for use with pg_bouncer
-                #cursor.execute(
-                #    "SET search_path = pgstac, public;",
-                #)
-                cursor.execute(
-                    "SELECT * FROM geojsonsearch(%s, %s, %s, %s, %s, %s, %s, %s);",
-                    (
-                        geom.json(exclude_none=True),
-                        self.input,
-                        json.dumps(fields),
-                        scan_limit,
-                        items_limit,
-                        f"{time_limit} seconds",
-                        exitwhenfull,
-                        skipcovered,
-                    ),
-                )
+                try:
+                    cursor.execute(
+                        "SELECT * FROM geojsonsearch(%s, %s, %s, %s, %s, %s, %s, %s);",
+                        (
+                            geom.json(exclude_none=True),
+                            self.input,
+                            json.dumps(fields),
+                            scan_limit,
+                            items_limit,
+                            f"{time_limit} seconds",
+                            exitwhenfull,
+                            skipcovered,
+                        ),
+                    )
+                except pgErrors.RaiseException as e:
+                    # Catch Invalid SearchId and raise specific Error
+                    if f"Search with Query Hash {self.input} Not Found" in str(e):
+                        raise MosaicNotFoundError(f"SearchId `{self.input}` not found")
+                    else:
+                        raise e
+
                 resp = cursor.fetchone()[0]
 
         return resp.get("features", [])
@@ -268,42 +276,6 @@ class PGSTACBackend(BaseBackend):
 
         return mosaic_reader(mosaic_assets, _reader, tile_x, tile_y, tile_z, **kwargs)
 
-    def feature(
-        self,
-        feature: Feature,
-        reverse: bool = False,
-        scan_limit: Optional[int] = None,
-        items_limit: Optional[int] = None,
-        time_limit: Optional[int] = None,
-        exitwhenfull: Optional[bool] = None,
-        skipcovered: Optional[bool] = None,
-        **kwargs: Any,
-    ) -> Tuple[ImageData, List[str]]:
-        """Get Tile from multiple observation."""
-        mosaic_assets = self.get_assets(feature.geometry,
-            scan_limit=scan_limit,
-            items_limit=items_limit,
-            time_limit=time_limit,
-            exitwhenfull=exitwhenfull,
-            skipcovered=skipcovered,
-        )
- 
-        if not mosaic_assets:
-            raise NoAssetFoundError(
-                f"No assets found for feature"
-            )
- 
-        if reverse:
-            mosaic_assets = list(reversed(mosaic_assets))
- 
-        def _reader(
-            item: Dict[str, Any], feature, **kwargs: Any
-        ) -> ImageData:
-            with self.reader(item, **self.reader_options) as src_dst:
-                return src_dst.feature(feature.geometry.__geo_interface__, **kwargs)
- 
-        return mosaic_reader(mosaic_assets, _reader, feature, **kwargs)
-
     def point(
         self,
         lon: float,
@@ -345,3 +317,68 @@ class PGSTACBackend(BaseBackend):
             kwargs.update({"allowed_exceptions": (PointOutsideBounds,)})
 
         return list(multi_values(mosaic_assets, _reader, lon, lat, **kwargs).items())
+
+    def feature(
+        self,
+        shape: Dict,
+        dst_crs: Optional[CRS] = None,
+        shape_crs: CRS = WGS84_CRS,
+        max_size: int = 1024,
+        reverse: bool = False,
+        scan_limit: Optional[int] = None,
+        items_limit: Optional[int] = None,
+        time_limit: Optional[int] = None,
+        exitwhenfull: Optional[bool] = None,
+        skipcovered: Optional[bool] = None,
+        **kwargs: Any,
+    ) -> Tuple[ImageData, List[str]]:
+        """Get Tile from multiple observation."""
+        if "geometry" in shape:
+            shape = shape["geometry"]
+
+        # PgSTAC except geometry in WGS84
+        shape_wgs84 = shape
+        if shape_crs != WGS84_CRS:
+            shape_wgs84 = transform_geom(shape_crs, WGS84_CRS, shape)
+
+        mosaic_assets = self.get_assets(
+            parse_geometry_obj(shape_wgs84),
+            scan_limit=scan_limit,
+            items_limit=items_limit,
+            time_limit=time_limit,
+            exitwhenfull=exitwhenfull,
+            skipcovered=skipcovered,
+        )
+
+        if not mosaic_assets:
+            raise NoAssetFoundError("No assets found for tile input Geometry")
+
+        if reverse:
+            mosaic_assets = list(reversed(mosaic_assets))
+
+        # We need to set width/height on each `src.feature()` call
+        # so each data will overlap. We define the output shape based on
+        # the X/Y length of the feature bbox and the maximum allowed size `max_size`.
+        bbox = featureBounds(shape)
+        x_length = bbox[2] - bbox[0]
+        y_length = bbox[3] - bbox[1]
+        yx_ratio = y_length / x_length
+        if yx_ratio > 1:
+            height = max_size
+            width = math.ceil(height / yx_ratio)
+        else:
+            width = max_size
+            height = math.ceil(width * yx_ratio)
+
+        def _reader(item: Dict[str, Any], shape: Dict, **kwargs: Any) -> ImageData:
+            with self.reader(item, **self.reader_options) as src_dst:
+                return src_dst.feature(shape, **kwargs)
+
+        return mosaic_reader(
+            mosaic_assets,
+            _reader,
+            shape,
+            shape_crs=shape_crs,
+            dst_crs=dst_crs or shape_crs,
+            **kwargs,
+        )

@@ -1,6 +1,6 @@
 """titiler-pgstac dependencies."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -46,6 +46,16 @@ def SearchParams(
     )
     return model.PgSTACSearch(**search), body.metadata
 
+@dataclass(init=False)	
+class BackendParams(DefaultDependency):	
+    """backend parameters."""	
+    pool: ConnectionPool = field(init=False)	
+    def __init__(self, request: Request):	
+        """Initialize BackendParams	
+        Note: Because we don't want `pool` to appear in the documentation we use a dataclass with a custom `__init__` method.	
+        FastAPI will use the `__init__` method but will exclude Request in the documentation making `pool` an invisible dependency.	
+        """	
+        self.pool = request.app.state.dbpool
 
 @dataclass
 class PgSTACParams(DefaultDependency):
@@ -77,29 +87,22 @@ class PgSTACParams(DefaultDependency):
     TTLCache(maxsize=cache_config.maxsize, ttl=cache_config.ttl),
     key=lambda pool, collection, item: hashkey(collection, item),
 )
-def get_stac_item(pool: ConnectionPool, collection: str, item: str) -> Dict:
-    """Get STAC Item from PGStac."""
-    with pool.connection() as conn:
-        with conn.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(
-                (
-                    "SELECT * FROM pgstac.items WHERE "
-                    "collection_id=%s AND id=%s LIMIT 1;"
-                ),
-                (
-                    collection,
-                    item,
-                ),
-            )
-
-            resp = cursor.fetchone()
-            if not resp:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No item '{item}' found in '{collection}' collection",
-                )
-
-            return pystac.Item.from_dict(resp["content"])
+def get_stac_item(pool: ConnectionPool, collection: str, item: str) -> Dict:	
+    """Get STAC Item from PGStac."""	
+    search = model.PgSTACSearch(ids=[item], collections=[collection])	
+    with pool.connection() as conn:	
+        with conn.cursor(row_factory=dict_row) as cursor:	
+            cursor.execute(	
+                ("SELECT * FROM pgstac.search(%s) LIMIT 1;"),	
+                (search.json(by_alias=True, exclude_none=True),),	
+            )	
+            resp = cursor.fetchone()["search"]	
+            if not resp or "features" not in resp or len(resp["features"]) != 1:	
+                raise HTTPException(	
+                    status_code=404,	
+                    detail=f"No item '{item}' found in '{collection}' collection",	
+                )	
+            return pystac.Item.from_dict(resp["features"][0])
 
 
 def ItemPathParams(
