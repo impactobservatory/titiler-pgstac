@@ -6,18 +6,19 @@ with open("README.md") as f:
     long_description = f.read()
 
 inst_reqs = [
-    "titiler.core>=0.5,<0.6",
-    "titiler.mosaic>=0.5,<0.6",
-    "geojson-pydantic>=0.3.1,<0.4",
+    "titiler.core>=0.7,<0.8",
+    "titiler.mosaic>=0.7,<0.8",
+    "geojson-pydantic>=0.4,<0.5",
     "stac-pydantic==2.0.*",
 ]
 extra_reqs = {
+    "dev": ["pre-commit"],
     "test": [
         "pytest",
         "pytest-cov",
         "pytest-asyncio<0.18.0",
         "httpx",
-        "pypgstac>=0.4,<0.5",
+        "pypgstac>=0.6,<0.7",
         "asyncpg",
     ],
     # https://www.psycopg.org/psycopg3/docs/api/pq.html#pq-module-implementations
@@ -29,7 +30,7 @@ extra_reqs = {
 
 setup(
     name="titiler.pgstac",
-    description=u"Connect PgSTAC and TiTiler",
+    description="Connect PgSTAC and TiTiler",
     long_description=long_description,
     long_description_content_type="text/markdown",
     python_requires=">=3.7",
@@ -42,7 +43,7 @@ setup(
         "Programming Language :: Python :: 3.9",
     ],
     keywords="COG STAC MosaicJSON FastAPI PgSTAC",
-    author=u"Vincent Sarago",
+    author="Vincent Sarago",
     author_email="vincent@developmentseed.org",
     url="https://github.com/stac-utils/titiler-pgstac",
     license="MIT",
