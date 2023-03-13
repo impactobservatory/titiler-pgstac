@@ -22,6 +22,7 @@ import rasterio
 from cogeo_mosaic.backends import BaseBackend
 from cogeo_mosaic.errors import MosaicNotFoundError
 from geojson_pydantic import Feature, FeatureCollection
+from morecantile import TileMatrixSet
 from psycopg import sql
 from psycopg.rows import class_row
 from rio_tiler.constants import MAX_THREADS
@@ -32,6 +33,7 @@ from titiler.core.dependencies import (
     AssetsBidxExprParams,
     DefaultDependency,
     HistogramParams,
+    ImageParams,
     RescalingParams,
     StatisticsParams,
 )
@@ -101,6 +103,8 @@ class MosaicTilerFactory(BaseTilerFactory):
     stats_dependency: Type[DefaultDependency] = StatisticsParams
     histogram_dependency: Type[DefaultDependency] = HistogramParams
 
+    img_dependency: Type[DefaultDependency] = ImageParams
+
     # Search dependency
     search_dependency: Callable[
         ..., Tuple[model.PgSTACSearch, model.Metadata]
@@ -125,6 +129,7 @@ class MosaicTilerFactory(BaseTilerFactory):
         self._tilejson_routes()
         self._wmts_routes()
         self._assets_routes()
+        self._crop_routes()
 
         if self.add_statistics:
             self._statistics_routes()
@@ -919,6 +924,158 @@ class MosaicTilerFactory(BaseTilerFactory):
                 ),
             )
 
+    def _crop_routes(self) -> None:
+        """Register /crop endpoint."""
+
+        # GET endpoints
+        @self.router.get(
+            r"/crop/{searchid}/{minx},{miny},{maxx},{maxy}.{format}",
+            **img_endpoint_params,
+        )
+        @self.router.get(
+            r"/crop/{searchid}/{minx},{miny},{maxx},{maxy}/{width}x{height}.{format}",
+            **img_endpoint_params,
+        )
+        def part(
+            minx: float = Path(..., description="Bounding box min X"),
+            miny: float = Path(..., description="Bounding box min Y"),
+            maxx: float = Path(..., description="Bounding box max X"),
+            maxy: float = Path(..., description="Bounding box max Y"),
+            format: ImageType = Query(..., description="Output image type."),
+            src_path=Depends(self.path_dependency),
+            layer_params=Depends(self.layer_dependency),
+            dataset_params=Depends(self.dataset_dependency),
+            image_params=Depends(self.img_dependency),
+            post_process=Depends(self.process_dependency),
+            rescale: Optional[List[Tuple[float, ...]]] = Depends(RescalingParams),
+            color_formula: Optional[str] = Query(
+                None,
+                title="Color Formula",
+                description="rio-color formula (info: https://github.com/mapbox/rio-color)",
+            ),
+            colormap=Depends(self.colormap_dependency),
+            render_params=Depends(self.render_dependency),
+            reader_params=Depends(self.reader_dependency),
+            env=Depends(self.environment_dependency),
+        ):
+            """Create image from part of a dataset."""
+            with rasterio.Env(**env):
+                with self.reader(src_path, **reader_params) as src_dst:
+                    image = src_dst.part(
+                        [minx, miny, maxx, maxy],
+                        **layer_params,
+                        **image_params,
+                        **dataset_params,
+                    )
+                    dst_colormap = getattr(src_dst, "colormap", None)
+
+            if post_process:
+                image = post_process(image)
+
+            if rescale:
+                image.rescale(rescale)
+
+            if color_formula:
+                image.apply_color_formula(color_formula)
+
+            if cmap := colormap or dst_colormap:
+                image = image.apply_colormap(cmap)
+
+            content = image.render(
+                img_format=format.driver,
+                **format.profile,
+                **render_params,
+            )
+
+            return Response(content, media_type=format.mediatype)
+
+        # POST endpoints
+        @self.router.post(
+            r"/crop/{searchid}",
+            **img_endpoint_params,
+        )
+        @self.router.post(
+            r"/crop/{searchid}.{format}",
+            **img_endpoint_params,
+        )
+        @self.router.post(
+            r"/crop/{searchid}/{width}x{height}.{format}",
+            **img_endpoint_params,
+        )
+        def geojson_crop(
+            geojson: Feature = Body(..., description="GeoJSON Feature."),
+            TileMatrixSetId: Literal[tuple(self.supported_tms.list())] = Query(  # type: ignore
+                self.default_tms,
+                description=f"TileMatrixSet Name (default: '{self.default_tms}')",
+            ),
+            format: ImageType = Query(
+                None, description="Output image type. Default is auto."
+            ),
+            searchid=Depends(self.path_dependency),
+            layer_params=Depends(self.layer_dependency),
+            dataset_params=Depends(self.dataset_dependency),
+            image_params=Depends(self.img_dependency),
+            post_process=Depends(self.process_dependency),
+            rescale: Optional[List[Tuple[float, ...]]] = Depends(RescalingParams),
+            color_formula: Optional[str] = Query(
+                None,
+                title="Color Formula",
+                description="rio-color formula (info: https://github.com/mapbox/rio-color)",
+            ),
+            colormap=Depends(self.colormap_dependency),
+            render_params=Depends(self.render_dependency),
+            backend_params=Depends(self.backend_dependency),
+            reader_params=Depends(self.reader_dependency),
+            env=Depends(self.environment_dependency),
+        ):
+            
+            timings = []
+            headers: Dict[str, str] = {}
+
+            tms = self.supported_tms.get(TileMatrixSetId)
+
+            threads = int(os.getenv("MOSAIC_CONCURRENCY", MAX_THREADS))
+            with Timer() as t:
+                with rasterio.Env(**env):
+                    with self.reader(
+                        searchid,
+                        tms=tms,
+                        reader_options={**reader_params},
+                        **backend_params,
+                    ) as src_dst:                    
+                        image, assets = src_dst.feature(
+                            geojson.dict(exclude_none=True),
+                            dst_crs="EPSG:6933",
+                            **layer_params,
+                            **image_params,
+                            **dataset_params,
+                        )
+                        dst_colormap = getattr(src_dst, "colormap", None)
+
+            if post_process:
+                image = post_process(image)
+
+            if rescale:
+                image.rescale(rescale)
+
+            if color_formula:
+                image.apply_color_formula(color_formula)
+
+            if cmap := colormap or dst_colormap:
+                image = image.apply_colormap(cmap)
+
+            if not format:
+                format = ImageType.jpeg if image.mask.all() else ImageType.png
+
+            content = image.render(
+                img_format=format.driver,
+                **format.profile,
+                **render_params,
+            )
+
+            return Response(content, media_type=format.mediatype)
+
+
     def _statistics_routes(self):
         """Register /statistics endpoint."""
 
@@ -971,6 +1128,7 @@ class MosaicTilerFactory(BaseTilerFactory):
                             pixel_selection=pixel_selection.method(),
                             threads=threads,
                             max_size=max_size,
+                            dst_crs="EPSG:6933",
                             **layer_params,
                             **dataset_params,
                             **pgstac_params,
