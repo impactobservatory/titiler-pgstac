@@ -12,7 +12,7 @@ COPY setup.py setup.py
 COPY setup.cfg setup.cfg
 COPY README.md README.md
 
-RUN pip install --no-cache-dir --upgrade .["psycopg-binary"]
+RUN pip install --no-cache-dir --upgrade .["psycopg-binary"] matplotlib
 RUN rm -rf titiler/ setup.py setup.cfg README.md
 
 ENV MODULE_NAME titiler.pgstac.main

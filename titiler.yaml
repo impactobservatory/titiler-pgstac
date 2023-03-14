@@ -1,0 +1,250 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: $NAMESPACE
+
+---
+
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+ name: titiler-pgstac
+spec:
+ scaleTargetRef:
+   apiVersion: apps/v1
+   kind: Deployment
+   name: titiler-pgstac
+ minReplicas: $MIN_REPLICAS
+ maxReplicas: $MAX_REPLICAS
+ targetCPUUtilizationPercentage: 10
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titiler-pgstac
+spec:
+  selector:
+    matchLabels:
+      app: titiler-pgstac
+  template:
+    metadata:
+      labels:
+        app: titiler-pgstac
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - titiler-pgstac
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: titiler-pgstac
+        image: impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "16000Mi"
+            cpu: "4"
+        ports:
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
+        env:
+        - name: AZURE_STORAGE_CONNECTION_STRING
+          value: "DefaultEndpointsProtocol=https;AccountName=impactobservatory;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+        - name: CPL_TMPDIR
+          value: "/tmp"
+        - name: DOCKER_ENABLE_CI
+          value: "true"
+        - name: DOCKER_REGISTRY_SERVER_PASSWORD
+          value: "$DOCKER_REGISTRY_SERVER_PASSWORD"
+        - name: DOCKER_REGISTRY_SERVER_URL
+          value: "https://impactobservatory.azurecr.io"
+        - name: DOCKER_REGISTRY_SERVER_USERNAME
+          value: "impactobservatory"
+        - name: GDAL_CACHEMAX
+          value: "200"
+        - name: GDAL_DISABLE_READDIR_ON_OPEN
+          value: "EMPTY_DIR"
+        - name: GDAL_HTTP_MERGE_CONSECUTIVE_RANGES
+          value: "YES"
+        - name: GDAL_HTTP_MULTIPLEX
+          value: "YES"
+        - name: GDAL_HTTP_VERSION
+          value: "2"
+        - name: InstrumentationEngine_EXTENSION_VERSION
+          value: "disabled"
+        - name: MODULE_NAME
+          value: "titiler.pgstac.main"
+        - name: PORT
+          value: "80"
+        - name: POSTGRES_DBNAME
+          value: "$POSTGRES_DBNAME"
+        - name: POSTGRES_HOST
+          value: "$POSTGRES_HOST"
+        - name: POSTGRES_PASS
+          value: "$POSTGRES_PASS"
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_USER
+          value: "impactobservatory"
+        - name: PYTHONWARNINGS
+          value: "ignore"
+        - name: SnapshotDebugger_EXTENSION_VERSION
+          value: "disabled"
+        - name: VARIABLE_NAME
+          value: "app"
+        - name: VSI_CACHE
+          value: "TRUE"
+        - name: VSI_CACHE_SIZE
+          value: "536870912"
+        - name: WORKERS_PER_CORE
+          value: "1"
+        - name: DB_MAX_CONN_SIZE
+          value: "1000"    
+      nodeSelector:
+        agentpool: $AGENT_POOL
+
+---
+
+#apiVersion: apps/v1
+#kind: Deployment
+#metadata:
+#  labels:
+#    app: pgbouncer
+#  name: pgbouncer
+#spec:
+#  replicas: 1
+#  selector:
+#    matchLabels:
+#      app: pgbouncer
+#  template:
+#    metadata:
+#      labels:
+#        app: pgbouncer
+#    spec:
+#      containers:
+#      - name: pgbouncer
+#        image: edoburu/pgbouncer:latest
+#        resources:
+#          requests:
+#            memory: "64Mi"
+#            cpu: "50m"
+#          limits:
+#            memory: "4000Mi"
+#            cpu: "1000m"
+#        lifecycle:
+#          preStop:
+#            exec:
+#              command:
+#              - /bin/sh
+#              - -c
+#              - killall -INT pgbouncer && sleep 120
+#        ports:
+#        - containerPort: 5432
+#        securityContext:
+#          allowPrivilegeEscalation: false
+#          capabilities:
+#            drop:
+#            - all
+#        env:
+#        - name: DB_HOST
+#          #value: "complex-doll-4723.postgres.database.azure.com"
+#          value: "io-stac-unbl.postgres.database.azure.com"
+#        - name: DB_PASSWORD
+#          value: "{Password}"
+#        - name: DB_USER
+#          value: "impactobservatory"
+#        - name: DB_NAME
+#          value: "navigator"
+#        - name: POOL_MODE
+#          value: transaction
+#        - name: SERVER_RESET_QUERY
+#          value: DISCARD ALL
+#        - name: MAX_CLIENT_CONN
+#          value: "12000"
+#
+#---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: titiler-pgstac
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: titiler-pgstac
+
+#---
+#
+#apiVersion: v1
+#kind: Service
+#metadata:
+#  name: pgbouncer-service
+#spec:
+#  ports:
+#  - port: 5432
+#    protocol: TCP
+#    targetPort: 5432
+#  selector:
+#    app: pgbouncer
+#  type: ClusterIP
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: titiler-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: "/$1"
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/server-snippet: |
+      fastcgi_buffers 8 16k;
+      fastcgi_buffer_size 32k;
+      client_max_body_size 24M;
+      client_body_buffer_size 128k;
+      client_header_buffer_size 5120k;
+      large_client_header_buffers 16 5120k;
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - $DNS_A_RECORD
+    secretName: tls-secret
+  rules:
+  - host: $DNS_A_RECORD
+    http:
+      paths:
+      - path: /(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: titiler-pgstac
+            port: 
+              number: 80

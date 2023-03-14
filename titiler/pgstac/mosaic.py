@@ -11,7 +11,7 @@ from cachetools.keys import hashkey
 from cogeo_mosaic.backends import BaseBackend
 from cogeo_mosaic.errors import MosaicNotFoundError, NoAssetFoundError
 from cogeo_mosaic.mosaic import MosaicJSON
-from geojson_pydantic import Point, Polygon
+from geojson_pydantic import Feature, Point, Polygon
 from geojson_pydantic.geometries import Geometry, parse_geometry_obj
 from morecantile import TileMatrixSet
 from psycopg import errors as pgErrors

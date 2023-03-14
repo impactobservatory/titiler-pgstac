@@ -1,0 +1,91 @@
+image: docker:19.03.12
+
+services:
+  - docker:19.03.12-dind
+
+stages:
+  - build
+  - deploy
+
+.deploy:
+  stage: deploy
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - kubectl config get-contexts
+    - kubectl config use-context impactobservatory/titiler-pgstac:gitlab-agent-primary
+    - sed -i "s/\$CI_COMMIT_BRANCH/$CI_COMMIT_BRANCH/g" titiler.yaml
+    - sed -i "s/\$CI_PIPELINE_ID/$CI_PIPELINE_ID/g" titiler.yaml
+    - sed -i "s/\$NAMESPACE/$NAMESPACE/g" titiler.yaml
+    - sed -i "s/\$MIN_REPLICAS/$MIN_REPLICAS/g" titiler.yaml
+    - sed -i "s/\$MAX_REPLICAS/$MAX_REPLICAS/g" titiler.yaml
+    - sed -i "s/\$DNS_A_RECORD/$DNS_A_RECORD/g" titiler.yaml
+    - sed -i "s/\$STORAGE_ACCOUNT_KEY/$STORAGE_ACCOUNT_KEY/g" titiler.yaml
+    - sed -i "s/\$DOCKER_REGISTRY_SERVER_PASSWORD/$DOCKER_REGISTRY_SERVER_PASSWORD/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_HOST/$POSTGRES_HOST/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_DBNAME/$POSTGRES_DBNAME/g" titiler.yaml
+    - sed -i "s/\$POSTGRES_PASS/$POSTGRES_PASS/g" titiler.yaml
+    - sed -i "s/\$AGENT_POOL/$AGENT_POOL/g" titiler.yaml
+    - kubectl apply -f ./titiler.yaml --namespace=$NAMESPACE
+
+####################
+### Docker Build ###
+####################
+
+build-titiler-docker:
+  stage: build
+  script:
+    - docker info
+    - docker login impactobservatory.azurecr.io -u $SP_APP_ID -p $SP_PASSWD
+    - docker build -f Dockerfile.gunicorn -t impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID .
+    - docker push impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
+
+#####################
+### IO AKS Deploy ###
+#####################
+
+deploy-titiler-pgstac-io-dev:
+  extends: .deploy
+  environment: io-dev
+
+deploy-titiler-pgstac-io-staging:
+  extends: .deploy
+  environment: io-staging
+  needs: ["deploy-titiler-pgstac-io-dev"]
+  when: manual
+
+deploy-titiler-pgstac-io-internal:
+  extends: .deploy
+  environment: io-internal
+  needs: ["deploy-titiler-pgstac-io-dev"]
+  when: manual
+
+deploy-titiler-pgstac-io-prod:
+  extends: .deploy
+  environment: io-prod
+  needs: ["deploy-titiler-pgstac-io-staging"]
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+#######################
+### UNBL AKS Deploy ###
+#######################
+
+deploy-titiler-pgstac-unbl-staging:
+  extends: .deploy
+  environment: unbl-staging
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+deploy-titiler-pgstac-unbl-prod:
+  extends: .deploy
+  environment: unbl-prod
+  needs: ["deploy-titiler-pgstac-unbl-staging"]
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+# Add stage to auto-test the tiler functionality

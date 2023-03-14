@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import rasterio
 from cogeo_mosaic.backends import BaseBackend
 from cogeo_mosaic.errors import MosaicNotFoundError
+from geojson_pydantic.features import Feature
 from geojson_pydantic import Feature, FeatureCollection
 from morecantile import TileMatrixSet
 from psycopg import sql
@@ -46,6 +47,7 @@ from titiler.mosaic.resources.enums import PixelSelectionMethod
 from titiler.pgstac import model
 from titiler.pgstac.dependencies import (
     BackendParams,
+    ColorMapParams,
     PathParams,
     PgSTACParams,
     SearchParams,
@@ -103,7 +105,10 @@ class MosaicTilerFactory(BaseTilerFactory):
     stats_dependency: Type[DefaultDependency] = StatisticsParams
     histogram_dependency: Type[DefaultDependency] = HistogramParams
 
+    # Crop/Preview endpoints Dependencies
     img_dependency: Type[DefaultDependency] = ImageParams
+
+    colormap_dependency: Callable[..., Optional[Dict]] = ColorMapParams
 
     # Search dependency
     search_dependency: Callable[
@@ -130,7 +135,6 @@ class MosaicTilerFactory(BaseTilerFactory):
         self._wmts_routes()
         self._assets_routes()
         self._crop_routes()
-
         if self.add_statistics:
             self._statistics_routes()
 

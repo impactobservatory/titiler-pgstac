@@ -9,7 +9,7 @@ COPY setup.py setup.py
 COPY setup.cfg setup.cfg
 COPY README.md README.md
 
-RUN pip install --no-cache-dir --upgrade .["psycopg-binary"] uvicorn
+RUN pip install --no-cache-dir --upgrade .["psycopg-binary"] uvicorn matplotlib
 RUN rm -rf titiler/ setup.py setup.cfg README.md
 
 # http://www.uvicorn.org/settings/
