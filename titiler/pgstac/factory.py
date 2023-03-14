@@ -50,6 +50,7 @@ from titiler.pgstac.dependencies import (
     ColorMapParams,
     PathParams,
     PgSTACParams,
+    ProjectionParams,
     SearchParams,
 )
 from titiler.pgstac.mosaic import PGSTACBackend
@@ -107,6 +108,7 @@ class MosaicTilerFactory(BaseTilerFactory):
 
     # Crop/Preview endpoints Dependencies
     img_dependency: Type[DefaultDependency] = ImageParams
+    proj_dependency: Callable[..., Optional[str]] = ProjectionParams
 
     colormap_dependency: Callable[..., Optional[Dict]] = ColorMapParams
 
@@ -1027,6 +1029,7 @@ class MosaicTilerFactory(BaseTilerFactory):
                 description="rio-color formula (info: https://github.com/mapbox/rio-color)",
             ),
             colormap=Depends(self.colormap_dependency),
+            dst_crs=Depends(self.proj_dependency),
             render_params=Depends(self.render_dependency),
             backend_params=Depends(self.backend_dependency),
             reader_params=Depends(self.reader_dependency),
@@ -1049,7 +1052,7 @@ class MosaicTilerFactory(BaseTilerFactory):
                     ) as src_dst:                    
                         image, assets = src_dst.feature(
                             geojson.dict(exclude_none=True),
-                            dst_crs="EPSG:6933",
+                            dst_crs=dst_crs,
                             **layer_params,
                             **image_params,
                             **dataset_params,
