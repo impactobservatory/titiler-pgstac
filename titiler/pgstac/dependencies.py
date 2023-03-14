@@ -166,3 +166,8 @@ def ColorMapParams(
         return cm
 
     return None
+
+
+def ProjectionParams(dst_crs: str = Query(default="EPSG:4326", description="Destination CRS")):
+    # TODO: validate?
+    return dst_crs
