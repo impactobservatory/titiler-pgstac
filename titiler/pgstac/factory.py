@@ -18,7 +18,10 @@ from typing import (
 )
 from urllib.parse import urlencode
 
+from titiler.pgstac.cog_utils import render_cog
+
 import rasterio
+from rasterio.transform import from_bounds
 from cogeo_mosaic.backends import BaseBackend
 from cogeo_mosaic.errors import MosaicNotFoundError
 from geojson_pydantic.features import Feature
@@ -26,6 +29,7 @@ from geojson_pydantic import Feature, FeatureCollection
 from morecantile import TileMatrixSet
 from psycopg import sql
 from psycopg.rows import class_row
+from pyproj import CRS
 from rio_tiler.constants import MAX_THREADS
 from rio_tiler.models import BandStatistics
 from rio_tiler.utils import get_array_statistics
@@ -1052,33 +1056,52 @@ class MosaicTilerFactory(BaseTilerFactory):
                     ) as src_dst:                    
                         image, assets = src_dst.feature(
                             geojson.dict(exclude_none=True),
-                            dst_crs=dst_crs,
+                            dst_crs=CRS.from_string(dst_crs),
                             **layer_params,
                             **image_params,
                             **dataset_params,
                         )
                         dst_colormap = getattr(src_dst, "colormap", None)
+            
+            if format != ImageType.tif:
 
-            if post_process:
-                image = post_process(image)
+                if post_process:
+                    image = post_process(image)
 
-            if rescale:
-                image.rescale(rescale)
+                if rescale:
+                    image.rescale(rescale)
 
-            if color_formula:
-                image.apply_color_formula(color_formula)
+                if color_formula:
+                    image.apply_color_formula(color_formula)
 
-            if cmap := colormap or dst_colormap:
-                image = image.apply_colormap(cmap)
+                if cmap := colormap or dst_colormap:
+                    image = image.apply_colormap(cmap)
 
-            if not format:
-                format = ImageType.jpeg if image.mask.all() else ImageType.png
+                if not format:
+                    format = ImageType.jpeg if image.mask.all() else ImageType.png
 
-            content = image.render(
-                img_format=format.driver,
-                **format.profile,
-                **render_params,
-            )
+                content = image.render(
+                    img_format=format.driver,
+                    **format.profile,
+                    **render_params,
+                )
+
+            else:
+                # return a COG rather than standard GeoTIFF
+                transform = from_bounds(*image.bounds, width=image.width, height=image.height)
+                profile = dict(
+                    count=1,
+                    height=image.height,
+                    width=image.width,
+                    crs=dst_crs,
+                    transform=transform,
+                )
+                content = render_cog(
+                    data=image.data,
+                    profile=profile,
+                    nodata=dataset_params.nodata,
+                    colormap=colormap
+                )
 
             return Response(content, media_type=format.mediatype)
 
