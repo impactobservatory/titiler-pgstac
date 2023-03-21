@@ -26,17 +26,18 @@ app.include_router(mosaic.router)
 
 | Method | URL                                                                       | Output                            | Description
 | ------ | --------------------------------------------------------------------------|-----------------------------------|--------------
-| `POST` | `/mosaic/register`                                                               | JSON ([Register][register_model]) | Register **Search** query
-| `GET`  | `/mosaic/{searchid}/info`                                                        | JSON ([Info][info_model])         | Return **Search** query infos
-| `GET`  | `/mosaic/{searchid}/[{TileMatrixSetId}]/{z}/{x}/{Y}/assets`                      | JSON                              | Return a list of assets which overlap a given tile
-| `GET`  | `/mosaic/{searchid}/{lon},{lat}/assets`                                          | JSON                              | Return a list of assets which overlap a given point
-| `GET`  | `/mosaic/tiles/{searchid}/[{TileMatrixSetId}]/{z}/{x}/{y}[@{scale}x][.{format}]` | image/bin                         | Create a web map tile image for a search query and a tile index
-| `GET`  | `/mosaic/{searchid}/[{TileMatrixSetId}]/tilejson.json`                           | JSON ([TileJSON][tilejson_model]) | Return a Mapbox TileJSON document
-
+| `POST` | `/register`                                                               | JSON ([Register][register_model]) | Register **Search** query
+| `GET`  | `/{searchid}/info`                                                        | JSON ([Info][info_model])         | Return **Search** query infos
+| `GET`  | `/{searchid}[/{TileMatrixSetId}]/{z}/{x}/{Y}/assets`                      | JSON                              | Return a list of assets which overlap a given tile
+| `GET`  | `/{searchid}/{lon},{lat}/assets`                                          | JSON                              | Return a list of assets which overlap a given point
+| `GET`  | `/tiles/{searchid}[/{TileMatrixSetId}]/{z}/{x}/{y}[@{scale}x][.{format}]` | image/bin                         | Create a web map tile image for a search query and a tile index
+| `GET`  | `/{searchid}[/{TileMatrixSetId}]/tilejson.json`                           | JSON ([TileJSON][tilejson_model]) | Return a Mapbox TileJSON document
+| `GET`  | `/{searchid}[/{TileMatrixSetId}]/WMTSCapabilities.xml`                    | XML                               | return OGC WMTS Get Capabilities
+| `GET`  | `/{searchid}[/{TileMatrixSetId}]/map`                                     | HTML                              | simple map viewer
 
 ## Item
 
-For the `single STAC item` endpoints we use TiTiler's [`MultiBaseTilerFactory`]() with a custom [`path_dependency`]() to use `item` and `collection` query parameter (instead of the default `url`).
+For the `single STAC item` endpoints we use TiTiler's [`MultiBaseTilerFactory`]() with a custom [`path_dependency`]() to use `item` and `collection` path parameter (instead of the default `url` query param).
 
 This custom `path_dependency` will connect to PgSTAC directly to fetch the STAC Item and pass it to a custom [Reader]() based on [`rio_tiler.io.MultiBaseReader`]().
 
@@ -62,8 +63,12 @@ async def shutdown_event() -> None:
     """Close database connection."""
     await close_db_connection(app)
 
-item = MultiBaseTilerFactory(reader=PgSTACReader, path_dependency=ItemPathParams)
-app.include_router(item.router)
+item = MultiBaseTilerFactory(
+    reader=PgSTACReader,
+    path_dependency=ItemPathParams,
+    router_prefix="/collections/{collection_id}/items/{item_id}",
+)
+app.include_router(item.router, prefix="/collections/{collection_id}/items/{item_id}")
 ```
 
 [tilejson_model]: https://github.com/developmentseed/titiler/blob/2335048a407f17127099cbbc6c14e1328852d619/src/titiler/core/titiler/core/models/mapbox.py#L16-L38

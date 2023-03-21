@@ -1,6 +1,73 @@
 # Release Notes
 
-## 0.1.0 (20222-06-27)
+## 0.3.2 (2023-03-14)
+
+* update titiler requirement to `0.10.2`
+* fix maximum version of FastAPI to 0.92 (to avoid breaking change of starlette >0.25)
+
+## 0.3.1 (2022-12-16)
+
+* update Type information for `dependencies.get_stac_item` (backported from 2.2)
+
+## 0.3.0 (2022-12-16)
+
+**breaking changes**
+
+* Use `/collections/{collection_id}/items/{item_id}` prefix for **Item** endpoint.
+    ```
+    # Before
+    {endpoint}/stac/info?collection=collection1&item=item1
+
+    # Now
+    {endpoint}/collections/collection1/items/item1/info
+    ```
+
+* Change tile url path parameter order from `/tiles/{searchid}/{TileMatrixSetId}/{z}/{x}/{y}` to `/{searchid}/tiles/{TileMatrixSetId}/{z}/{x}/{y}`
+    ```
+    # Before
+    {endpoint}/mosaic/tiles/20200307aC0853900w361030/0/0/0
+
+    # Now
+    {endpoint}/mosaic/20200307aC0853900w361030/tiles/0/0/0
+    ```
+
+## 0.2.3 (2023-03-14)
+
+* fix maximum version of FastAPI to 0.92 (to avoid breaking change of starlette >0.25)
+
+## 0.2.2 (2022-12-16)
+
+* update Type information for `dependencies.get_stac_item`
+
+## 0.2.1 (2022-12-15)
+
+* update titiler requirement to `>=0.10.1,<0.11` and fix `/map` endpoint (to accept multiple TMS)
+
+## 0.2.0 (2022-12-13)
+
+* add python 3.10 and 3.11 support
+* update to rio-tiler 4.1
+* add `/{searchid}/map` endpoint to the `MosaicTilerFactory` (added when `add_map_viewer` is set to `True`)
+* add `/{searchid}/WMTSCapabilities.xml` OGC WMTS endpoint to the `MosaicTilerFactory`
+* add `/list` to the `MosaicTilerFactory` to list available mosaics (added when `add_mosaic_list` is set to `True`)
+
+**breaking changes**
+
+* remove python 3.7 support
+* update titiler requirement to `>=0.10.0`
+* replace `connection_string` by `database_url` in `settings.PostgresSettings`. We can now directly set `DATABASE_URL` environment variable.
+
+#### Frontend changes
+
+- remove `asset_expression` (Mosaic and Item)
+- histogram band names are prefixed with `b` (e.g `b1`) (Mosaic and Item) (ref: https://github.com/cogeotiff/rio-tiler/blob/main/docs/src/v4_migration.md#band-names)
+- expression for STAC have to be in form of `{asset}_b{band_name}` (e.g `red_b1/green_b1`) (Mosaic and Item) (ref: https://github.com/cogeotiff/rio-tiler/blob/main/docs/src/v4_migration.md#multibasereader-expressions)
+- added `asset_as_band` option to force expression to be in form of `{asset}` (e.g `red/green`) (Mosaic and Item)
+- expression's band should now be delimited with `;` (previously `,` was accepted) (Mosaic and Item)
+- point output model to include band_names (Item)
+- added `algorithm` options
+
+## 0.1.0 (2022-06-27)
 
 * update `titiler.core` and `titiler.mosaic` requirement to `0.7`
 * add `MosaicTilerFactory._tilejson_routes` method to register `TileJSON` routes

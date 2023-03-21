@@ -7,9 +7,8 @@ from rio_tiler.io import COGReader
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
-from titiler.core.dependencies import TileMatrixSetName, TMSParams
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
-from titiler.core.factory import MultiBaseTilerFactory, TMSFactory, TilerFactory
+from titiler.core.factory import AlgorithmFactory, MultiBaseTilerFactory, TilerFactory, TMSFactory, templates
 from titiler.core.middleware import (
     CacheControlMiddleware,
     LoggerMiddleware,
@@ -76,16 +75,22 @@ if settings.debug:
 else:
     optional_headers = []
 
-
+###############################################################################
+# MOSAIC Endpoints
 mosaic = MosaicTilerFactory(
-    optional_headers=optional_headers, router_prefix="/mosaic", add_statistics=True
+    optional_headers=optional_headers,
+    router_prefix="/mosaic",
+    add_statistics=True,
+    add_map_viewer=True,
+    add_mosaic_list=True,
 )
 app.include_router(mosaic.router, tags=["Mosaic"], prefix="/mosaic")
 
+###############################################################################
+# STAC Item Endpoints
 cog = TilerFactory(
     reader=COGReader,
     colormap_dependency=ColorMapParams,
-    tms_dependency=TMSParams,
     router_prefix="cog",
 )
 app.include_router(cog.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"])
@@ -95,14 +100,25 @@ stac = MultiBaseTilerFactory(
     reader=PgSTACReader,
     path_dependency=ItemPathParams,
     optional_headers=optional_headers,
-    router_prefix="/stac",
+    router_prefix="/collections/{collection_id}/items/{item_id}",
 )
-app.include_router(stac.router, tags=["Items"], prefix="/stac")
+app.include_router(
+    stac.router, tags=["Item"], prefix="/collections/{collection_id}/items/{item_id}"
+)
 
-tms = TMSFactory(supported_tms=TileMatrixSetName, tms_dependency=TMSParams)
-app.include_router(tms.router, tags=["TileMatrixSets"])
+###############################################################################
+# Tiling Schemes Endpoints
+tms = TMSFactory()
+app.include_router(tms.router, tags=["Tiling Schemes"])
+
+###############################################################################
+# Algorithms Endpoints
+algorithms = AlgorithmFactory()
+app.include_router(algorithms.router, tags=["Algorithms"])
 
 
+###############################################################################
+# Health Check Endpoint
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
 def ping(
     timeout: int = Query(1, description="Timeout getting SQL connection from the pool.")

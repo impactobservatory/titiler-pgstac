@@ -87,31 +87,34 @@ class PgSTACParams(DefaultDependency):
     TTLCache(maxsize=cache_config.maxsize, ttl=cache_config.ttl),
     key=lambda pool, collection, item: hashkey(collection, item),
 )
-def get_stac_item(pool: ConnectionPool, collection: str, item: str) -> Dict:	
-    """Get STAC Item from PGStac."""	
-    search = model.PgSTACSearch(ids=[item], collections=[collection])	
-    with pool.connection() as conn:	
-        with conn.cursor(row_factory=dict_row) as cursor:	
-            cursor.execute(	
-                ("SELECT * FROM pgstac.search(%s) LIMIT 1;"),	
-                (search.json(by_alias=True, exclude_none=True),),	
-            )	
-            resp = cursor.fetchone()["search"]	
-            if not resp or "features" not in resp or len(resp["features"]) != 1:	
-                raise HTTPException(	
-                    status_code=404,	
-                    detail=f"No item '{item}' found in '{collection}' collection",	
-                )	
+def get_stac_item(pool: ConnectionPool, collection: str, item: str) -> pystac.Item:
+    """Get STAC Item from PGStac."""
+    search = model.PgSTACSearch(ids=[item], collections=[collection])
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                ("SELECT * FROM pgstac.search(%s) LIMIT 1;"),
+                (search.json(by_alias=True, exclude_none=True),),
+            )
+
+            resp = cursor.fetchone()["search"]
+            if not resp or "features" not in resp or len(resp["features"]) != 1:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No item '{item}' found in '{collection}' collection",
+                )
+
             return pystac.Item.from_dict(resp["features"][0])
 
 
 def ItemPathParams(
     request: Request,
-    collection: str = Query(..., description="STAC Collection ID"),
-    item: str = Query(..., description="STAC Item ID"),
-) -> Dict:
+    collection_id: str = Path(..., description="STAC Collection ID"),
+    item_id: str = Path(..., description="STAC Item ID"),
+) -> pystac.Item:
     """STAC Item dependency."""
-    return get_stac_item(request.app.state.dbpool, collection, item)
+
+    return get_stac_item(request.app.state.dbpool, collection_id, item_id)
 
 
 class ColorMapType(str, Enum):
@@ -138,7 +141,7 @@ def ColorMapParams(
             )
             # Make sure to match colormap type
             if isinstance(cm, Sequence):
-                cm = [(tuple(inter), parse_color(v)) for (inter, v) in c]
+                cm = [(tuple(inter), parse_color(v)) for (inter, v) in cm]
 
         except json.JSONDecodeError:
             raise HTTPException(
@@ -163,3 +166,8 @@ def ColorMapParams(
         return cm
 
     return None
+
+
+def ProjectionParams(dst_crs: str = Query(default="EPSG:4326", description="Destination CRS")):
+    # TODO: validate?
+    return dst_crs
