@@ -231,6 +231,8 @@ metadata:
       client_body_buffer_size 128k;
       client_header_buffer_size 5120k;
       large_client_header_buffers 16 5120k;
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "240"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "240"
 spec:
   ingressClassName: nginx
   tls:
