@@ -8,7 +8,7 @@ from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
-from titiler.core.factory import AlgorithmFactory, MultiBaseTilerFactory, TMSFactory
+from titiler.core.factory import AlgorithmFactory, MultiBaseTilerFactory, TilerFactory, TMSFactory, templates
 from titiler.core.middleware import (
     CacheControlMiddleware,
     LoggerMiddleware,
@@ -88,13 +88,12 @@ app.include_router(mosaic.router, tags=["Mosaic"], prefix="/mosaic")
 
 ###############################################################################
 # STAC Item Endpoints
-# cog = TilerFactory(
-#     reader=COGReader,
-#     colormap_dependency=ColorMapParams,
-#     tms_dependency=TMSParams,
-#     router_prefix="cog",
-# )
-# app.include_router(cog.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"])
+cog = TilerFactory(
+    reader=COGReader,
+    colormap_dependency=ColorMapParams,
+    router_prefix="cog",
+)
+app.include_router(cog.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"])
 
 
 stac = MultiBaseTilerFactory(
@@ -134,16 +133,16 @@ def ping(
 
     return {"database_online": db_online}
 
-# @cog.router.get("/viewer", response_class=HTMLResponse)
-# def cog_demo(request: Request):
-#     """COG Viewer."""
-#     return templates.TemplateResponse(
-#         name="cog_index.html",
-#         context={
-#             "request": request,
-#             "tilejson_endpoint": cog.url_for(request, "tilejson"),
-#             "info_endpoint": cog.url_for(request, "info"),
-#             "statistics_endpoint": cog.url_for(request, "statistics"),
-#         },
-#         media_type="text/html",
-#     )
+@cog.router.get("/viewer", response_class=HTMLResponse)
+def cog_demo(request: Request):
+    """COG Viewer."""
+    return templates.TemplateResponse(
+        name="cog_index.html",
+        context={
+            "request": request,
+            "tilejson_endpoint": cog.url_for(request, "tilejson"),
+            "info_endpoint": cog.url_for(request, "info"),
+            "statistics_endpoint": cog.url_for(request, "statistics"),
+        },
+        media_type="text/html",
+    )
