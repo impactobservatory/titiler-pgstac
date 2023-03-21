@@ -223,6 +223,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: "/$1"
     nginx.ingress.kubernetes.io/secure-backends: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "240"
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/server-snippet: |
       fastcgi_buffers 8 16k;
@@ -231,7 +232,6 @@ metadata:
       client_body_buffer_size 128k;
       client_header_buffer_size 5120k;
       large_client_header_buffers 16 5120k;
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "240s"
 spec:
   ingressClassName: nginx
   tls:
