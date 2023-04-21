@@ -10,7 +10,7 @@ stages:
 .deploy:
   stage: deploy
   image: 
-    name: bitnami/kubectl:latest
+    name: bitnami/kubectl:1.26
     entrypoint: ['']
   script:
     - kubectl config get-contexts
