@@ -61,6 +61,14 @@ deploy-titiler-pgstac-io-internal:
   needs: ["deploy-titiler-pgstac-io-dev"]
   when: manual
 
+deploy-titiler-pgstac-io-pc:
+  extends: .deploy
+  environment: planetarycomputer
+  needs: ["deploy-titiler-pgstac-io-staging"]
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
 deploy-titiler-pgstac-io-prod:
   extends: .deploy
   environment: io-prod
