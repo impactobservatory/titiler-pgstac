@@ -37,7 +37,7 @@ build-titiler-docker:
   stage: build
   script:
     - docker info
-    - docker login impactobservatory.azurecr.io -u $SP_APP_ID -p $SP_PASSWD
+    - docker login impactobservatory.azurecr.io -u $SP_APP_ID -p $SP_PASSWORD
     - docker build -f Dockerfile.gunicorn -t impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID .
     - docker push impactobservatory.azurecr.io/titiler-pgstac:$CI_COMMIT_BRANCH.$CI_PIPELINE_ID
 
@@ -68,6 +68,7 @@ deploy-titiler-pgstac-io-pc:
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+  after_script: bash slacknotify.sh
 
 deploy-titiler-pgstac-io-prod:
   extends: .deploy
@@ -76,6 +77,7 @@ deploy-titiler-pgstac-io-prod:
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+  after_script: bash slacknotify.sh
 
 #######################
 ### UNBL AKS Deploy ###
@@ -95,5 +97,6 @@ deploy-titiler-pgstac-unbl-prod:
   when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
+  after_script: bash slacknotify.sh
 
 # Add stage to auto-test the tiler functionality
