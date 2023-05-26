@@ -1131,7 +1131,7 @@ class MosaicTilerFactory(BaseTilerFactory):
             pixel_selection: PixelSelectionMethod = Query(
                 PixelSelectionMethod.first, description="Pixel selection method."
             ),
-            max_size: int = Query(1024, description="Maximum image size to read onto."),
+            image_params=Depends(self.img_dependency),
             stats_params=Depends(self.stats_dependency),
             histogram_params=Depends(self.histogram_dependency),
             dst_crs=Depends(self.proj_dependency),
@@ -1158,8 +1158,8 @@ class MosaicTilerFactory(BaseTilerFactory):
                             feature.dict(exclude_none=True),
                             pixel_selection=pixel_selection.method(),
                             threads=threads,
-                            max_size=max_size,
-                            dst_crs=dst_crs,
+                            dst_crs=CRS.from_string(dst_crs),
+                            **image_params,
                             **layer_params,
                             **dataset_params,
                             **pgstac_params,
